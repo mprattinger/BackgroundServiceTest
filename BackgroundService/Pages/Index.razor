@@ -1,0 +1,65 @@
+﻿@page "/"
+@using BackgroundService.Models;
+@using BackgroundService.Services;
+@using MQTTnet;
+@using MQTTnet.Client;
+
+@inject AppState appState
+
+@implements IDisposable;
+
+<h1>Hello, world!</h1>
+
+<p>The current temp is: @Temperature °C</p>
+<p>The temp was measured at @LastUpdate.ToShortTimeString()</p>
+
+<button @onclick="requestTemp">Read Temp</button>
+
+@code {
+
+    public double Temperature { get; set; }
+    public DateTime LastUpdate { get; set; }
+
+    protected override void OnInitialized()
+    {
+        appState.OnNewTempData += OnNewTempData;
+    }
+
+    async Task requestTemp()
+    {
+        var mqttFactory = new MqttFactory();
+
+        using (var mqttClient = mqttFactory.CreateMqttClient())
+        {
+            var mqttClientOptions = new MqttClientOptionsBuilder()
+                .WithTcpServer("homeassistant")
+                .WithCredentials("mprattinger", "Fl61291420")
+                .Build();
+
+            await mqttClient.ConnectAsync(mqttClientOptions, CancellationToken.None);
+
+            var applicationMessage = new MqttApplicationMessageBuilder()
+                .WithTopic("commands/livingroom")
+                .WithPayload("GETTEMP")
+                .Build();
+
+            await mqttClient.PublishAsync(applicationMessage, CancellationToken.None);
+
+            await mqttClient.DisconnectAsync();
+
+            Console.WriteLine("MQTT application message is published.");
+        }
+    }
+
+    async Task OnNewTempData(TempData tempData)
+    {
+        Temperature = tempData.Temp;
+        LastUpdate = DateTime.Now;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    void IDisposable.Dispose()
+    {
+        appState.OnNewTempData -= OnNewTempData;
+    }
+}
